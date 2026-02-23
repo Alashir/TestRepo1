@@ -1,3 +1,6 @@
+from bisect import bisect_left, bisect_right
+
+
 class BPlusNode:
     def __init__(self, leaf=False):
         self.keys = []
@@ -7,7 +10,11 @@ class BPlusNode:
 
 
 class BPlusTree:
-    def __init__(self, order=3):
+    """Simple integer-only B+ tree used as a toy database index."""
+
+    def __init__(self, order=16):
+        if order < 3:
+            raise ValueError("order must be at least 3")
         self.root = BPlusNode(leaf=True)
         self.order = order
 
@@ -22,20 +29,15 @@ class BPlusTree:
 
     def _insert_non_full(self, node, key):
         if node.leaf:
-            i = 0
-            while i < len(node.keys) and key > node.keys[i]:
-                i += 1
+            i = bisect_left(node.keys, key)
             if i < len(node.keys) and node.keys[i] == key:
                 return
             node.keys.insert(i, key)
         else:
-            i = len(node.keys) - 1
-            while i >= 0 and key < node.keys[i]:
-                i -= 1
-            i += 1
+            i = bisect_right(node.keys, key)
             if len(node.children[i].keys) == self.order - 1:
                 self._split_child(node, i)
-                if key > node.keys[i]:
+                if key >= node.keys[i]:
                     i += 1
             self._insert_non_full(node.children[i], key)
 
@@ -54,10 +56,10 @@ class BPlusTree:
         else:
             new_node = BPlusNode()
             push_up_key = node.keys[mid]
-            new_node.keys = node.keys[mid + 1:]
-            new_node.children = node.children[mid + 1:]
+            new_node.keys = node.keys[mid + 1 :]
+            new_node.children = node.children[mid + 1 :]
             node.keys = node.keys[:mid]
-            node.children = node.children[:mid + 1]
+            node.children = node.children[: mid + 1]
             parent.keys.insert(index, push_up_key)
             parent.children.insert(index + 1, new_node)
 
@@ -66,27 +68,60 @@ class BPlusTree:
 
     def _search(self, node, key):
         if node.leaf:
-            return key in node.keys
-        i = 0
-        while i < len(node.keys) and key >= node.keys[i]:
-            i += 1
+            i = bisect_left(node.keys, key)
+            return i < len(node.keys) and node.keys[i] == key
+        i = bisect_right(node.keys, key)
         return self._search(node.children[i], key)
+
+    def range_query(self, start, end):
+        """Return every key in the inclusive range [start, end]."""
+        if start > end:
+            start, end = end, start
+
+        node = self.root
+        while not node.leaf:
+            node = node.children[bisect_right(node.keys, start)]
+
+        values = []
+        while node:
+            idx = bisect_left(node.keys, start)
+            while idx < len(node.keys) and node.keys[idx] <= end:
+                values.append(node.keys[idx])
+                idx += 1
+            if not node.keys or node.keys[-1] > end:
+                break
+            node = node.next
+        return values
+
+    def to_sorted_list(self):
+        node = self.root
+        while not node.leaf:
+            node = node.children[0]
+
+        out = []
+        while node:
+            out.extend(node.keys)
+            node = node.next
+        return out
+
+    def bulk_load(self, values):
+        """Fast-ish insertion path for demos: sort/dedupe first then insert."""
+        for value in sorted(set(values)):
+            self.insert(value)
 
     def delete(self, key):
         self._delete(self.root, key)
-        if not self.root.leaf and len(self.root.keys) == 0:
-            if self.root.children:
-                self.root = self.root.children[0]
+        if not self.root.leaf and len(self.root.keys) == 0 and self.root.children:
+            self.root = self.root.children[0]
 
     def _delete(self, node, key):
         if node.leaf:
-            if key in node.keys:
-                node.keys.remove(key)
+            i = bisect_left(node.keys, key)
+            if i < len(node.keys) and node.keys[i] == key:
+                node.keys.pop(i)
             return
 
-        i = 0
-        while i < len(node.keys) and key >= node.keys[i]:
-            i += 1
+        i = bisect_right(node.keys, key)
         self._delete(node.children[i], key)
 
         if len(node.children[i].keys) < (self.order - 1) // 2:
@@ -97,7 +132,10 @@ class BPlusTree:
     def _fix_child(self, parent, index):
         if index > 0 and len(parent.children[index - 1].keys) > (self.order - 1) // 2:
             self._borrow_from_left(parent, index)
-        elif index < len(parent.children) - 1 and len(parent.children[index + 1].keys) > (self.order - 1) // 2:
+        elif (
+            index < len(parent.children) - 1
+            and len(parent.children[index + 1].keys) > (self.order - 1) // 2
+        ):
             self._borrow_from_right(parent, index)
         else:
             if index > 0:
@@ -145,7 +183,8 @@ class BPlusTree:
     def _update_keys(self, node):
         for i in range(len(node.children) - 1):
             if node.children[i + 1].leaf:
-                node.keys[i] = node.children[i + 1].keys[0] if node.children[i + 1].keys else node.keys[i]
+                if node.children[i + 1].keys:
+                    node.keys[i] = node.children[i + 1].keys[0]
             else:
                 leftmost = node.children[i + 1]
                 while not leftmost.leaf:
