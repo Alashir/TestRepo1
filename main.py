@@ -12,20 +12,20 @@ font1 = pygame.font.SysFont(None, 20)
 clock = pygame.time.Clock()
 
 
-def format_node_keys(keys, max_keys_shown=6):
+def format_node_keys(keys, max_keys_shown=5):
     if len(keys) <= max_keys_shown:
         return "  ".join(map(str, keys))
     head = "  ".join(map(str, keys[:3]))
-    tail = "  ".join(map(str, keys[-2:]))
+    tail = "  ".join(map(str, keys[-1:]))
     return f"{head}  ...  {tail}"
 
 
 def draw_node(node, x, y):
     text = format_node_keys(node.keys)
-    key_font = pygame.font.SysFont(None, 34 if len(node.keys) <= 6 else 28)
+    key_font = pygame.font.SysFont(None, 30 if len(node.keys) <= 5 else 24)
     txt = key_font.render(text, True, "blue")
 
-    width = min(max(txt.get_width() + 22, 80), 220)
+    width = min(max(txt.get_width() + 20, 88), 190)
     rect = pygame.Rect(x, y, width, 40)
 
     pygame.draw.rect(screen, "white", rect)
@@ -40,9 +40,9 @@ def draw_tree(levels):
         return
 
     node_positions = []
-    gap_y = 100
-    min_gap = 18
-    margin = 10
+    gap_y = 110
+    min_gap = 12
+    margin = 14
 
     for index, level in enumerate(levels):
         y = 120 + index * gap_y
@@ -50,14 +50,14 @@ def draw_tree(levels):
         widths = []
         for node in level:
             preview_text = format_node_keys(node.keys)
-            preview_font = pygame.font.SysFont(None, 34 if len(node.keys) <= 6 else 28)
-            preview_width = preview_font.render(preview_text, True, "blue").get_width() + 22
-            widths.append(min(max(preview_width, 80), 220))
+            preview_font = pygame.font.SysFont(None, 30 if len(node.keys) <= 5 else 24)
+            preview_width = preview_font.render(preview_text, True, "blue").get_width() + 20
+            widths.append(min(max(preview_width, 88), 190))
 
         total_nodes_width = sum(widths)
         available = WIDTH - 2 * margin
         gap_x = min_gap
-        if len(level) > 1 and total_nodes_width < available:
+        if len(level) > 1:
             gap_x = max(min_gap, (available - total_nodes_width) // (len(level) - 1))
 
         total_width = total_nodes_width + gap_x * max(0, len(level) - 1)
@@ -72,21 +72,24 @@ def draw_tree(levels):
 
         node_positions.append(level_positions)
 
-    draw_lines(node_positions)
+    draw_lines(levels, node_positions)
 
 
-def draw_lines(node_positions):
+def draw_lines(levels, node_positions):
     for level in range(len(node_positions) - 1):
-        parents = node_positions[level]
-        children = node_positions[level + 1]
+        parent_nodes = levels[level]
+        child_nodes = levels[level + 1]
+        parent_rects = node_positions[level]
+        child_rects = node_positions[level + 1]
+        child_rect_map = {id(node): rect for node, rect in zip(child_nodes, child_rects)}
 
-        for i, parent in enumerate(parents):
-            start = round(i * len(children) / len(parents))
-            end = round((i + 1) * len(children) / len(parents))
-            parent_center = (parent.centerx, parent.bottom)
+        for parent_node, parent_rect in zip(parent_nodes, parent_rects):
+            parent_center = (parent_rect.centerx, parent_rect.bottom)
 
-            for child in children[start:end]:
-                pygame.draw.line(screen, "black", parent_center, child.midtop, 2)
+            for child_node in parent_node.children:
+                child_rect = child_rect_map.get(id(child_node))
+                if child_rect:
+                    pygame.draw.line(screen, "black", parent_center, child_rect.midtop, 2)
 
     draw_arrow(node_positions[-1])
 
